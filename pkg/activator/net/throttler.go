@@ -407,7 +407,8 @@ func assignSlice(trackers []*podTracker, selfIndex, numActivators, cc int) []*po
 func (rt *revisionThrottler) handleUpdate(update revisionDestsUpdate) {
 	rt.logger.Debugw("Handling update",
 		zap.String("ClusterIP", update.ClusterIPDest), zap.Object("dests", logging.StringSet(update.Dests)))
-
+	defer update.Mutex.Unlock()
+	update.Mutex.Lock()
 	// ClusterIP is not yet ready, so we want to send requests directly to the pods.
 	// NB: this will not be called in parallel, thus we can build a new podTrackers
 	// array before taking out a lock.
