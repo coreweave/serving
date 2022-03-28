@@ -63,6 +63,7 @@ type revisionDestsUpdate struct {
 	Rev           types.NamespacedName
 	ClusterIPDest string
 	Dests         sets.String
+	Mutex         sync.Mutex
 }
 
 type dests struct {
