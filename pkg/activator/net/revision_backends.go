@@ -63,7 +63,7 @@ type revisionDestsUpdate struct {
 	Rev           types.NamespacedName
 	ClusterIPDest string
 	Dests         sets.String
-	Mutex         sync.Mutex
+	Mutex         *sync.Mutex
 }
 
 type dests struct {
@@ -270,7 +270,8 @@ func (rw *revisionWatcher) sendUpdate(clusterIP string, dests sets.String) {
 	case <-rw.stopCh:
 		return
 	default:
-		rw.updateCh <- revisionDestsUpdate{Rev: rw.rev, ClusterIPDest: clusterIP, Dests: dests}
+		rw.updateCh <- revisionDestsUpdate{Rev: rw.rev,
+			ClusterIPDest: clusterIP, Dests: dests, Mutex: &sync.Mutex{}}
 	}
 }
 
