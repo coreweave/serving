@@ -5,7 +5,7 @@
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Go.gitlab-ci.yml
 
 default:
-   image: golang:1.18.0-alpine3.15
+   image: golang:latest
    tags:
       - ord1-tenant
 
@@ -51,13 +51,15 @@ format:
 
 compile:
   stage: build
+  image: golang:1.18.0-alpine3.15
   before_script:
     - | # Generate registry credentials
       echo "Build triggered by $CI_PIPELINE_SOURCE"
       echo "Generating registry auth in ${HOME}/.docker/config.json"
       mkdir -p ${HOME}/.docker
       echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > ${HOME}/.docker/config.json
-      
+    - | # Install git
+      apk add --no-cache git
     - | # Install ko
       VERSION=0.11.2
       OS=Linux
