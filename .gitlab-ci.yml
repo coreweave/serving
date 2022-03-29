@@ -40,8 +40,21 @@ format:
 
 compile:
   stage: build
+  before_script:
+    - | # Generate registry credentials
+      echo "Build triggered by $CI_PIPELINE_SOURCE"
+      echo "Generating registry auth in ${HOME}/.docker/config.json"
+      mkdir -p ${HOME}/.docker
+      echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > ${HOME}/.docker/config.json
+      
+    - | # Install ko
+      tag=$(curl -s https://api.github.com/repos/google/ko/releases/latest | jq -r '.tag_name')
+      
+      echo "Installing ko @ ${tag} for amd64"
+      curl -fsL https://github.com/google/ko/releases/download/${tag}/ko_${tag:1}_amd64_x86_64.tar.gz | sudo tar xzf - -C /usr/local/bin ko
+
   script:
-    - ko build config/core/ --tarball knative-serving.tar -t $CI_COMMIT_TAG
+    - ko build config/core/ --tarball knative-serving.tar -t $CI_COMMIT_REF_SLUG
   artifacts:
     paths:
       - knative-serving.tar
