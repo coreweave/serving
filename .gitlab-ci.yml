@@ -5,7 +5,7 @@
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Go.gitlab-ci.yml
 
 default:
-   image: golang:1.18.0-buster
+   image: golang:1.18.0-alpine3.15
    tags:
       - ord1-tenant
 
@@ -57,14 +57,17 @@ compile:
       echo "Generating registry auth in ${HOME}/.docker/config.json"
       mkdir -p ${HOME}/.docker
       echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > ${HOME}/.docker/config.json
-    - | # Install jq
-      apt-get install -y jq
-    - | # Install ko
-      tag=$(curl -s https://api.github.com/repos/google/ko/releases/latest | jq -r '.tag_name')
       
-      echo "Installing ko @ ${tag} for amd64"
-      curl -fsL https://github.com/google/ko/releases/download/${tag}/ko_${tag:1}_Linux_x86_64.tar.gz | sudo tar xzf - -C /usr/local/bin ko
+    - | # Install ko
+      VERSION=0.11.2
+      OS=Linux
+      ARCH=x86_64
 
+      echo "Installing ko @ ${VERSION} for ${ARCH}"
+      
+      curl -L https://github.com/google/ko/releases/download/v${VERSION}/ko_${VERSION}_${OS}_${ARCH}.tar.gz | tar xzf - -C /usr/local/bin ko
+      chmod +x ./usr/local/bin/ko
+    
   script:
     - ko build config/core/ --tarball knative-serving.tar -t $CI_COMMIT_TAG
   artifacts:
