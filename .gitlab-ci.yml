@@ -69,7 +69,7 @@ compile:
       chmod +x /usr/local/bin/ko
     
   script:
-    - ko build config/core/ --tarball knative-serving.tar -t $CI_COMMIT_TAG
+    - ko build config/core/ --tarball knative-serving.tar -t $CI_COMMIT_REF_SLUG
   artifacts:
     paths:
       - knative-serving.tar
