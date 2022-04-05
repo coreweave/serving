@@ -405,10 +405,10 @@ func assignSlice(trackers []*podTracker, selfIndex, numActivators, cc int) []*po
 // This function will never be called in parallel but `try` can be called in parallel to this so we need
 // to lock on updating concurrency / trackers
 func (rt *revisionThrottler) handleUpdate(update revisionDestsUpdate) {
-	rt.logger.Debugw("Handling update",
-		zap.String("ClusterIP", update.ClusterIPDest), zap.Object("dests", logging.StringSet(update.Dests)))
 	defer update.Mutex.Unlock()
 	update.Mutex.Lock()
+	rt.logger.Debugw("Handling update",
+		zap.String("ClusterIP", update.ClusterIPDest), zap.Object("dests", logging.StringSet(update.Dests)))
 	// ClusterIP is not yet ready, so we want to send requests directly to the pods.
 	// NB: this will not be called in parallel, thus we can build a new podTrackers
 	// array before taking out a lock.
