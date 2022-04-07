@@ -18,6 +18,8 @@ package net
 
 import (
 	"context"
+	"go.uber.org/zap/zapcore"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"math"
 	"math/rand"
 	"net/http"
@@ -405,10 +407,23 @@ func assignSlice(trackers []*podTracker, selfIndex, numActivators, cc int) []*po
 // This function will never be called in parallel but `try` can be called in parallel to this so we need
 // to lock on updating concurrency / trackers
 func (rt *revisionThrottler) handleUpdate(update revisionDestsUpdate) {
-	defer update.Mutex.Unlock()
-	update.Mutex.Lock()
+	// We wrap the `logging.StringSet` marshalling function in a mutex lock
+	// so that it doesn't crash when concurrently marshalling the `StringSet`
+	// to the logger while the `handleUpdate` function iterates over the
+	// `StringSet`.
+	//
+	// This may have some performance impact, if the logging activates before
+	// the `update.Dests` map loop.
+	SafeStringSet := func(s sets.String) zapcore.ObjectMarshalerFunc {
+		stringSetMarshaller := logging.StringSet(update.Dests)
+		return func(encoder zapcore.ObjectEncoder) error {
+			defer update.Mutex.Unlock()
+			update.Mutex.Lock()
+			return stringSetMarshaller(encoder)
+		}
+	}
 	rt.logger.Debugw("Handling update",
-		zap.String("ClusterIP", update.ClusterIPDest), zap.Object("dests", logging.StringSet(update.Dests)))
+		zap.String("ClusterIP", update.ClusterIPDest), zap.Object("dests", SafeStringSet(update.Dests)))
 	// ClusterIP is not yet ready, so we want to send requests directly to the pods.
 	// NB: this will not be called in parallel, thus we can build a new podTrackers
 	// array before taking out a lock.
@@ -419,6 +434,8 @@ func (rt *revisionThrottler) handleUpdate(update revisionDestsUpdate) {
 			trackersMap[tracker.dest] = tracker
 		}
 
+		defer update.Mutex.Unlock()
+		update.Mutex.Lock()
 		trackers := make([]*podTracker, 0, len(update.Dests))
 
 		// Loop over dests, reuse existing tracker if we have one, otherwise create
