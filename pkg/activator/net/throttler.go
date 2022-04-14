@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 
 	"go.uber.org/atomic"
@@ -404,26 +405,29 @@ func assignSlice(trackers []*podTracker, selfIndex, numActivators, cc int) []*po
 	return x
 }
 
+// SafeStringSet
+// We wrap the `logging.StringSet` marshalling function in a mutex lock
+// so that it doesn't crash when concurrently marshalling the `StringSet`
+// to the logger while the `handleUpdate` function iterates over the
+// `StringSet`.
+//
+// This may have some performance impact, if the logging activates before
+// the loop that uses the set activates.
+func SafeStringSet(s sets.String, mutex *sync.Mutex) zapcore.ObjectMarshalerFunc {
+	return func(enc zapcore.ObjectEncoder) error {
+		defer mutex.Unlock()
+		mutex.Lock()
+		enc.AddString("keys", strings.Join(s.UnsortedList(), ","))
+		return nil
+	}
+}
+
 // This function will never be called in parallel but `try` can be called in parallel to this so we need
 // to lock on updating concurrency / trackers
 func (rt *revisionThrottler) handleUpdate(update revisionDestsUpdate) {
-	// We wrap the `logging.StringSet` marshalling function in a mutex lock
-	// so that it doesn't crash when concurrently marshalling the `StringSet`
-	// to the logger while the `handleUpdate` function iterates over the
-	// `StringSet`.
-	//
-	// This may have some performance impact, if the logging activates before
-	// the `update.Dests` map loop.
-	SafeStringSet := func(s sets.String) zapcore.ObjectMarshalerFunc {
-		stringSetMarshaller := logging.StringSet(update.Dests)
-		return func(encoder zapcore.ObjectEncoder) error {
-			defer update.Mutex.Unlock()
-			update.Mutex.Lock()
-			return stringSetMarshaller(encoder)
-		}
-	}
 	rt.logger.Debugw("Handling update",
-		zap.String("ClusterIP", update.ClusterIPDest), zap.Object("dests", SafeStringSet(update.Dests)))
+		zap.String("ClusterIP", update.ClusterIPDest), zap.Object("dests",
+			SafeStringSet(update.Dests, update.Mutex)))
 	// ClusterIP is not yet ready, so we want to send requests directly to the pods.
 	// NB: this will not be called in parallel, thus we can build a new podTrackers
 	// array before taking out a lock.
