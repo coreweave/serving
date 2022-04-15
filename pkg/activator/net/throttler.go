@@ -425,6 +425,8 @@ func SafeStringSet(s sets.String, mutex *sync.Mutex) zapcore.ObjectMarshalerFunc
 // This function will never be called in parallel but `try` can be called in parallel to this so we need
 // to lock on updating concurrency / trackers
 func (rt *revisionThrottler) handleUpdate(update revisionDestsUpdate) {
+	defer update.Mutex.Unlock()
+	update.Mutex.Lock()
 	rt.logger.Debugw("Handling update",
 		zap.String("ClusterIP", update.ClusterIPDest), zap.Object("dests",
 			SafeStringSet(update.Dests, update.Mutex)))
@@ -438,8 +440,6 @@ func (rt *revisionThrottler) handleUpdate(update revisionDestsUpdate) {
 			trackersMap[tracker.dest] = tracker
 		}
 
-		defer update.Mutex.Unlock()
-		update.Mutex.Lock()
 		trackers := make([]*podTracker, 0, len(update.Dests))
 
 		// Loop over dests, reuse existing tracker if we have one, otherwise create
