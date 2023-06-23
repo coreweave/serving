@@ -85,8 +85,8 @@ func (d dests) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 }
 
 const (
-	probeTimeout          time.Duration = 300 * time.Millisecond
-	defaultProbeFrequency time.Duration = 200 * time.Millisecond
+	probeTimeout          time.Duration = 1000 * time.Millisecond // Increase to see if it helps with roundtrip probe failures
+	defaultProbeFrequency time.Duration = 2000 * time.Millisecond // Increase to be > timeout
 )
 
 // revisionWatcher watches the podIPs and ClusterIP of the service for a revision. It implements the logic
@@ -158,7 +158,10 @@ func newRevisionWatcher(ctx context.Context, rev types.NamespacedName, protocol 
 // probe probes the destination and returns whether it is ready according to
 // the probe. If the failure is not compatible with having been caused by mesh
 // being enabled, notMesh will be true.
-func (rw *revisionWatcher) probe(ctx context.Context, dest string) (pass bool, notMesh bool, err error) {
+func (rw *revisionWatcher) probe(
+	ctx context.Context,
+	dest string,
+) (pass bool, notMesh bool, err error) {
 	httpDest := url.URL{
 		Scheme: "http",
 		Host:   dest,
@@ -204,7 +207,11 @@ func (rw *revisionWatcher) getDest() (string, error) {
 		return "", err
 	}
 	if svc.Spec.ClusterIP == "" {
-		return "", fmt.Errorf("private service %s/%s clusterIP is nil, this should never happen", svc.ObjectMeta.Namespace, svc.ObjectMeta.Name)
+		return "", fmt.Errorf(
+			"private service %s/%s clusterIP is nil, this should never happen",
+			svc.ObjectMeta.Namespace,
+			svc.ObjectMeta.Name,
+		)
 	}
 
 	svcPort, ok := getServicePort(rw.protocol, svc)
@@ -225,7 +232,9 @@ func (rw *revisionWatcher) probeClusterIP(dest string) (bool, error) {
 // the ones that are successfully probed, whether the update was a no-op, or an error.
 // If probing fails but not all errors were compatible with being caused by
 // mesh being enabled, being enabled, notMesh will be true.
-func (rw *revisionWatcher) probePodIPs(ready, notReady sets.String) (succeeded sets.String, noop bool, notMesh bool, err error) {
+func (rw *revisionWatcher) probePodIPs(
+	ready, notReady sets.String,
+) (succeeded sets.String, noop bool, notMesh bool, err error) {
 	dests := ready.Union(notReady)
 
 	// Short circuit case where all the current pods are already known to be healthy.
@@ -386,7 +395,11 @@ func (rw *revisionWatcher) checkDests(curDests, prevDests dests) {
 
 	// If cluster IP is healthy and we haven't scaled down, short circuit.
 	if rw.clusterIPHealthy {
-		rw.logger.Debugf("ClusterIP %s already probed (ready backends: %d)", dest, len(curDests.ready))
+		rw.logger.Debugf(
+			"ClusterIP %s already probed (ready backends: %d)",
+			dest,
+			len(curDests.ready),
+		)
 		rw.sendUpdate(dest, curDests.ready)
 		return
 	}
@@ -433,7 +446,11 @@ func (rw *revisionWatcher) run(probeFrequency time.Duration) {
 		case <-rw.stopCh:
 			return
 		case x := <-rw.destsCh:
-			rw.logger.Debugf("Updating Endpoints: ready backends: %d, not-ready backends: %d", len(x.ready), len(x.notReady))
+			rw.logger.Debugf(
+				"Updating Endpoints: ready backends: %d, not-ready backends: %d",
+				len(x.ready),
+				len(x.notReady),
+			)
 			prevDests, curDests = curDests, x
 		case <-tickCh:
 		}
@@ -462,13 +479,29 @@ type revisionBackendsManager struct {
 
 // NewRevisionBackendsManager returns a new RevisionBackendsManager with default
 // probe time out.
-func newRevisionBackendsManager(ctx context.Context, tr http.RoundTripper, usePassthroughLb bool, meshMode network.MeshCompatibilityMode) *revisionBackendsManager {
-	return newRevisionBackendsManagerWithProbeFrequency(ctx, tr, usePassthroughLb, meshMode, defaultProbeFrequency)
+func newRevisionBackendsManager(
+	ctx context.Context,
+	tr http.RoundTripper,
+	usePassthroughLb bool,
+	meshMode network.MeshCompatibilityMode,
+) *revisionBackendsManager {
+	return newRevisionBackendsManagerWithProbeFrequency(
+		ctx,
+		tr,
+		usePassthroughLb,
+		meshMode,
+		defaultProbeFrequency,
+	)
 }
 
 // newRevisionBackendsManagerWithProbeFrequency creates a fully spec'd RevisionBackendsManager.
-func newRevisionBackendsManagerWithProbeFrequency(ctx context.Context, tr http.RoundTripper,
-	usePassthroughLb bool, meshMode network.MeshCompatibilityMode, probeFreq time.Duration) *revisionBackendsManager {
+func newRevisionBackendsManagerWithProbeFrequency(
+	ctx context.Context,
+	tr http.RoundTripper,
+	usePassthroughLb bool,
+	meshMode network.MeshCompatibilityMode,
+	probeFreq time.Duration,
+) *revisionBackendsManager {
 	rbm := &revisionBackendsManager{
 		ctx:              ctx,
 		revisionLister:   revisioninformer.Get(ctx).Lister(),
@@ -487,7 +520,11 @@ func newRevisionBackendsManagerWithProbeFrequency(ctx context.Context, tr http.R
 			reconciler.LabelExistsFilterFunc(serving.RevisionUID),
 			// We are only interested in the private services, since that is
 			// what is populated by the actual revision backends.
-			reconciler.LabelFilterFunc(networking.ServiceTypeKey, string(networking.ServiceTypePrivate), false),
+			reconciler.LabelFilterFunc(
+				networking.ServiceTypeKey,
+				string(networking.ServiceTypePrivate),
+				false,
+			),
 		),
 		Handler: cache.ResourceEventHandlerFuncs{
 			AddFunc:    rbm.endpointsUpdated,
@@ -519,7 +556,9 @@ func (rbm *revisionBackendsManager) updates() <-chan revisionDestsUpdate {
 	return rbm.updateCh
 }
 
-func (rbm *revisionBackendsManager) getOrCreateRevisionWatcher(revID types.NamespacedName) (*revisionWatcher, error) {
+func (rbm *revisionBackendsManager) getOrCreateRevisionWatcher(
+	revID types.NamespacedName,
+) (*revisionWatcher, error) {
 	rbm.revisionWatchersMux.Lock()
 	defer rbm.revisionWatchersMux.Unlock()
 
@@ -536,7 +575,19 @@ func (rbm *revisionBackendsManager) getOrCreateRevisionWatcher(revID types.Names
 		}
 
 		destsCh := make(chan dests)
-		rw := newRevisionWatcher(rbm.ctx, revID, rev.GetProtocol(), rbm.updateCh, destsCh, rbm.transport, rbm.serviceLister, rbm.usePassthroughLb, rbm.meshMode, enableProbeOptimisation, rbm.logger)
+		rw := newRevisionWatcher(
+			rbm.ctx,
+			revID,
+			rev.GetProtocol(),
+			rbm.updateCh,
+			destsCh,
+			rbm.transport,
+			rbm.serviceLister,
+			rbm.usePassthroughLb,
+			rbm.meshMode,
+			enableProbeOptimisation,
+			rbm.logger,
+		)
 		rbm.revisionWatchers[revID] = rw
 		go rw.run(rbm.probeFrequency)
 		return rw, nil
@@ -555,11 +606,18 @@ func (rbm *revisionBackendsManager) endpointsUpdated(newObj interface{}) {
 	default:
 	}
 	endpoints := newObj.(*corev1.Endpoints)
-	revID := types.NamespacedName{Namespace: endpoints.Namespace, Name: endpoints.Labels[serving.RevisionLabelKey]}
+	revID := types.NamespacedName{
+		Namespace: endpoints.Namespace,
+		Name:      endpoints.Labels[serving.RevisionLabelKey],
+	}
 
 	rw, err := rbm.getOrCreateRevisionWatcher(revID)
 	if err != nil {
-		rbm.logger.Errorw("Failed to get revision watcher", zap.Error(err), zap.String(logkey.Key, revID.String()))
+		rbm.logger.Errorw(
+			"Failed to get revision watcher",
+			zap.Error(err),
+			zap.String(logkey.Key, revID.String()),
+		)
 		return
 	}
 	ready, notReady := endpointsToDests(endpoints, pkgnet.ServicePortName(rw.protocol))
@@ -587,7 +645,10 @@ func (rbm *revisionBackendsManager) endpointsDeleted(obj interface{}) {
 	default:
 	}
 	ep := obj.(*corev1.Endpoints)
-	revID := types.NamespacedName{Namespace: ep.Namespace, Name: ep.Labels[serving.RevisionLabelKey]}
+	revID := types.NamespacedName{
+		Namespace: ep.Namespace,
+		Name:      ep.Labels[serving.RevisionLabelKey],
+	}
 
 	rbm.logger.Debugw("Deleting endpoint", zap.String(logkey.Key, revID.String()))
 	rbm.revisionWatchersMux.Lock()
