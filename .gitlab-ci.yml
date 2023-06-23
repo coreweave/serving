@@ -1,0 +1,79 @@
+# This file is a template, and might need editing before it works on your project.
+# To contribute improvements to CI/CD templates, please follow the Development guide at:
+# https://docs.gitlab.com/ee/development/cicd/templates.html
+# This specific template is located at:
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Go.gitlab-ci.yml
+
+default:
+   image: golang:latest
+   tags:
+      - ord1-tenant
+
+workflow:
+  rules:
+    # Don't run CI when tags are pushed
+    - if: $CI_COMMIT_TAG
+      when: never
+    # Do run CI when the source is a <push|web|pipeline> event
+    # This prevents the pipeline from running spuriously
+    # https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html#pipeline-events
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "pipeline"'
+
+
+variables:
+  # Please edit to your GitLab project
+  REPO_NAME: github.com/coreweave/serving
+  KO_DOCKER_REPO: $CI_REGISTRY_IMAGE
+
+# The problem is that to be able to use go get, one needs to put
+# the repository in the $GOPATH. So for example if your gitlab domain
+# is gitlab.com, and that your repository is namespace/project, and
+# the default GOPATH being /go, then you'd need to have your
+# repository in /go/src/gitlab.com/namespace/project
+# Thus, making a symbolic link corrects this.
+before_script:
+  - mkdir -p "$GOPATH/src/$(dirname $REPO_NAME)"
+  - ln -svf "$CI_PROJECT_DIR" "$GOPATH/src/$REPO_NAME"
+  - cd "$GOPATH/src/$REPO_NAME"
+  - go install github.com/google/ko@latest
+
+stages:
+  - test
+  - build
+  - deploy
+
+format:
+  stage: test
+  script:
+    - go fmt $(go list ./... | grep -v /vendor/)
+    - go vet $(go list ./... | grep -v /vendor/)
+    # - go test -race $(go list ./... | grep -v /vendor/)
+
+compile:
+  stage: build
+  image: golang:1.18.0-alpine3.15
+  before_script:
+    - | # Generate registry credentials
+      echo "Build triggered by $CI_PIPELINE_SOURCE"
+      echo "Generating registry auth in ${HOME}/.docker/config.json"
+      mkdir -p ${HOME}/.docker
+      echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > ${HOME}/.docker/config.json
+    - | # Install git & curl
+      apk add --no-cache git curl tar
+    - | # Install ko
+      VERSION=0.11.2
+      OS=Linux
+      ARCH=x86_64
+      echo "Installing ko @ ${VERSION} for ${ARCH}"
+      curl -sL https://github.com/google/ko/releases/download/v${VERSION}/ko_${VERSION}_${OS}_${ARCH}.tar.gz | tar xvzf - -C /usr/local/bin ko
+      chmod +x /usr/local/bin/ko
+  script:
+    # - ko resolve -f config/core -t $CI_COMMIT_REF_SLUG > ./release.yaml
+    - export SOURCE_DATE_EPOCH=$(date +%s)
+    - export KO_DATA_DATE_EPOCH=$(git log -1 --format='%ct')
+    - ko resolve --base-import-paths -f config/core/deployments -t "$CI_COMMIT_REF_SLUG,$CI_COMMIT_SHORT_SHA" >> ./release.yaml
+    - cat ./release.yaml
+  
+  artifacts:
+    paths:
+      - ./release.yaml
