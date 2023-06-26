@@ -37,7 +37,11 @@ import (
 
 // NewContextHandler creates a handler that extracts the necessary context from the request
 // and makes it available on the request's context.
-func NewContextHandler(ctx context.Context, next http.Handler, store *activatorconfig.Store) http.Handler {
+func NewContextHandler(
+	ctx context.Context,
+	next http.Handler,
+	store *activatorconfig.Store,
+) http.Handler {
 	return &contextHandler{
 		nextHandler:    next,
 		revisionLister: revisioninformer.Get(ctx).Lister(),
@@ -61,6 +65,10 @@ func (h *contextHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// If the headers aren't explicitly specified, then decode the revision
 	// name and namespace from the Host header.
 	if name == "" || namespace == "" {
+		h.logger.Warnw(
+			"Revision name and namespace not specified in request headers, attempting to decode from host",
+			zap.String("host", r.Host),
+		)
 		parts := strings.SplitN(r.Host, ".", 4)
 		if len(parts) == 4 && parts[2] == "svc" && parts[3] == network.GetClusterDomainName() {
 			name, namespace = parts[0], parts[1]
@@ -68,10 +76,15 @@ func (h *contextHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	revID := types.NamespacedName{Namespace: namespace, Name: name}
-
 	revision, err := h.revisionLister.Revisions(namespace).Get(name)
 	if err != nil {
-		h.logger.Errorw("Error while getting revision", zap.String(logkey.Key, revID.String()), zap.Error(err))
+		h.logger.Errorw(
+			"Error while getting revision",
+			zap.String(logkey.Key, revID.String()),
+			zap.String("headers", fmt.Sprintf("%+v", r.Header)),
+			zap.String("host", r.Host),
+			zap.Error(err),
+		)
 		sendError(err, w)
 		return
 	}
