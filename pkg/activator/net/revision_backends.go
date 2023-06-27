@@ -85,8 +85,8 @@ func (d dests) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 }
 
 const (
-	probeTimeout          time.Duration = 1000 * time.Millisecond // Increase to see if it helps with roundtrip probe failures
-	defaultProbeFrequency time.Duration = 2000 * time.Millisecond // Increase to be > timeout
+	probeTimeout          time.Duration = 1000 * time.Millisecond // Increase to see if it helps with roundtrip probe failures, which it does, not decreasing for now until we have better idea how many long probes we have
+	defaultProbeFrequency time.Duration = 500 * time.Millisecond  // Now at 500 instead of original 200, reductions increase probe failures (somewhat expected), but seem to reduce later dial error
 )
 
 // revisionWatcher watches the podIPs and ClusterIP of the service for a revision. It implements the logic
@@ -197,7 +197,16 @@ func (rw *revisionWatcher) probe(
 			prober.WithHeader(network.PassthroughLoadbalancingHeaderName, "true"))
 	}
 
+	now := time.Now()
 	match, err := prober.Do(ctx, rw.transport, httpDest.String(), options...)
+	if duration := time.Since(now); err == nil && duration > defaultProbeFrequency {
+		rw.logger.Warnw(
+			"successful probe took longer than probe interval",
+			zap.Int64("duration", duration.Milliseconds()),
+		)
+	} else if err == nil {
+		rw.logger.Infow("successful probe", zap.Int64("duration", duration.Milliseconds()))
+	}
 	return match, notMesh, err
 }
 

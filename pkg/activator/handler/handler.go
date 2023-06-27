@@ -56,7 +56,13 @@ type activationHandler struct {
 }
 
 // New constructs a new http.Handler that deals with revision activation.
-func New(_ context.Context, t Throttler, transport http.RoundTripper, usePassthroughLb bool, logger *zap.SugaredLogger) http.Handler {
+func New(
+	_ context.Context,
+	t Throttler,
+	transport http.RoundTripper,
+	usePassthroughLb bool,
+	logger *zap.SugaredLogger,
+) http.Handler {
 	return &activationHandler{
 		transport: transport,
 		tracingTransport: &ochttp.Transport{
@@ -93,10 +99,17 @@ func (a *activationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}); err != nil {
 		// Set error on our capacity waiting span and end it.
-		trySpan.Annotate([]trace.Attribute{trace.StringAttribute("activator.throttler.error", err.Error())}, "ThrottlerTry")
+		trySpan.Annotate(
+			[]trace.Attribute{trace.StringAttribute("activator.throttler.error", err.Error())},
+			"ThrottlerTry",
+		)
 		trySpan.End()
 
-		a.logger.Errorw("Throttler try error", zap.String(logkey.Key, revID.String()), zap.Error(err))
+		a.logger.Errorw(
+			"Throttler try error",
+			zap.String(logkey.Key, revID.String()),
+			zap.Error(err),
+		)
 
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, queue.ErrRequestQueueFull) {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -124,7 +137,13 @@ func (a *activationHandler) proxyRequest(revID types.NamespacedName, w http.Resp
 	}
 	proxy.FlushInterval = network.FlushInterval
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
-		pkghandler.Error(a.logger.With(zap.String(logkey.Key, revID.String())))(w, req, err)
+		pkghandler.Error(
+			a.logger.With(zap.String(logkey.Key, revID.String()), zap.String("target", target)),
+		)(
+			w,
+			req,
+			err,
+		)
 	}
 
 	proxy.ServeHTTP(w, r)
