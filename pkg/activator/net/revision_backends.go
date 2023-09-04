@@ -296,6 +296,9 @@ func (rw *revisionWatcher) probePodIPs(
 	err = probeGroup.Wait()
 	close(healthyDests)
 
+	// NOTE: Its possible this is a problem due to the inserts done before
+	// probing based on k8s ready, probably need to actually compare the sets
+	// instead, should be able to confirm from logs.
 	unchanged := probed && len(healthyDests) == 0
 
 	for d := range healthyDests {
@@ -361,7 +364,7 @@ func (rw *revisionWatcher) checkDests(curDests, prevDests dests) {
 
 		// We need to send update if reprobe is non-empty, since the state
 		// of the world has been changed.
-		rw.logger.Debugf("Done probing, got %d healthy pods", len(hs))
+		rw.logger.Infof("Done probing, got %d healthy pods", len(hs), "reprobed", len(reprobe), "noop", noop)
 		if !noop || len(reprobe) > 0 {
 			rw.healthyPods = hs
 			// Note: it's important that this copies (via hs.Union) the healthy pods

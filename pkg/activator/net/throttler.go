@@ -578,7 +578,7 @@ func (t *Throttler) revisionDeleted(obj interface{}) {
 func (t *Throttler) handleUpdate(update revisionDestsUpdate) {
 	if rt, err := t.getOrCreateRevisionThrottler(update.Rev); err != nil {
 		if k8serrors.IsNotFound(err) {
-			t.logger.Debugw("Revision not found. It was probably removed", zap.String(logkey.Key, update.Rev.String()))
+			t.logger.Infow("Revision not found. It was probably removed", zap.String(logkey.Key, update.Rev.String()))
 		} else {
 			t.logger.Errorw("Failed to get revision throttler", zap.Error(err), zap.String(logkey.Key, update.Rev.String()))
 		}
