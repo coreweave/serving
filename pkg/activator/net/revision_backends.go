@@ -265,18 +265,15 @@ func (rw *revisionWatcher) probePodIPs(
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 
-	probeGroup := errgroup.Group{}
+	var probeGroup errgroup.Group
 	healthyDests := make(chan string, dests.Len())
 
-	var probed bool
 	var sawNotMesh atomic.Bool
 	for dest := range dests {
 		if healthy.Has(dest) {
 			// If we already know it's healthy we don't need to probe again.
 			continue
 		}
-
-		probed = true
 
 		dest := dest // Standard Go concurrency pattern.
 		probeGroup.Go(func() error {
@@ -296,8 +293,6 @@ func (rw *revisionWatcher) probePodIPs(
 	err = probeGroup.Wait()
 	close(healthyDests)
 
-	unchanged := probed && len(healthyDests) == 0
-
 	for d := range healthyDests {
 		healthy.Insert(d)
 	}
@@ -308,6 +303,8 @@ func (rw *revisionWatcher) probePodIPs(
 			healthy.Delete(d)
 		}
 	}
+
+	unchanged := healthy.Equal(rw.healthyPods)
 
 	return healthy, unchanged, sawNotMesh.Load(), err
 }
