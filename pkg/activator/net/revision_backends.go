@@ -626,6 +626,7 @@ func (rbm *revisionBackendsManager) endpointsUpdated(newObj interface{}) {
 		)
 		return
 	}
+	rbm.logger.Infow("Endpoints updated", zap.String(logkey.Key, revID.String()))
 	ready, notReady := endpointsToDests(endpoints, pkgnet.ServicePortName(rw.protocol))
 	select {
 	case <-rbm.ctx.Done():
@@ -656,7 +657,7 @@ func (rbm *revisionBackendsManager) endpointsDeleted(obj interface{}) {
 		Name:      ep.Labels[serving.RevisionLabelKey],
 	}
 
-	rbm.logger.Debugw("Deleting endpoint", zap.String(logkey.Key, revID.String()))
+	rbm.logger.Infow("Deleting endpoint", zap.String(logkey.Key, revID.String()))
 	rbm.revisionWatchersMux.Lock()
 	defer rbm.revisionWatchersMux.Unlock()
 	rbm.deleteRevisionWatcher(revID)
