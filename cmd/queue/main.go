@@ -161,10 +161,10 @@ func main() {
 	if env.ConcurrencyStateEndpoint != "" {
 		concurrencyendpoint = queue.NewConcurrencyEndpoint(env.ConcurrencyStateEndpoint, env.ConcurrencyStateTokenPath)
 	}
-	mainServer, drain := buildServer(ctx, env, probe, stats, logger, concurrencyendpoint)
+	mainServer, drainer := buildServer(ctx, env, probe, stats, logger, concurrencyendpoint)
 	servers := map[string]*http.Server{
 		"main":    mainServer,
-		"admin":   buildAdminServer(logger, drain),
+		"admin":   buildAdminServer(ctx, logger, drainer),
 		"metrics": buildMetricsServer(promStatReporter, protoStatReporter),
 	}
 	if env.EnableProfiling {
@@ -196,7 +196,7 @@ func main() {
 		}
 		logger.Info("Received TERM signal, attempting to gracefully shutdown servers.")
 		logger.Infof("Sleeping %v to allow K8s propagation of non-ready state", drainSleepDuration)
-		drain()
+		drainer.Drain()
 
 		// Removing the main server from the shutdown logic as we've already shut it down.
 		delete(servers, "main")
@@ -223,7 +223,7 @@ func buildProbe(logger *zap.SugaredLogger, encodedProbe string, autodetectHTTP2 
 }
 
 func buildServer(ctx context.Context, env config, probeContainer func() bool, stats *network.RequestStats, logger *zap.SugaredLogger,
-	ce *queue.ConcurrencyEndpoint) (server *http.Server, drain func()) {
+	ce *queue.ConcurrencyEndpoint) (server *http.Server, drainer *Drainer) {
 	maxIdleConns := 1000 // TODO: somewhat arbitrary value for CC=0, needs experimental validation.
 	if env.ContainerConcurrency > 0 {
 		maxIdleConns = env.ContainerConcurrency
@@ -273,7 +273,7 @@ func buildServer(ctx context.Context, env config, probeContainer func() bool, st
 		composedHandler = tracing.HTTPSpanMiddleware(composedHandler)
 	}
 
-	drainer := &pkghandler.Drainer{
+	drainer = &Drainer{
 		QuietPeriod: drainSleepDuration,
 		// Add Activator probe header to the drainer so it can handle probes directly from activator
 		HealthCheckUAPrefixes: []string{network.ActivatorUserAgent},
@@ -288,7 +288,7 @@ func buildServer(ctx context.Context, env config, probeContainer func() bool, st
 		composedHandler = requestLogHandler(logger, composedHandler, env)
 	}
 
-	return pkgnet.NewServer(":"+env.QueueServingPort, composedHandler), drainer.Drain
+	return pkgnet.NewServer(":"+env.QueueServingPort, composedHandler), drainer
 }
 
 func buildTransport(env config, logger *zap.SugaredLogger, maxConns int) http.RoundTripper {
@@ -344,11 +344,24 @@ func supportsMetrics(ctx context.Context, logger *zap.SugaredLogger, env config)
 	return true
 }
 
-func buildAdminServer(logger *zap.SugaredLogger, drain func()) *http.Server {
+func buildAdminServer(ctx context.Context, logger *zap.SugaredLogger, drainer *Drainer) *http.Server {
 	adminMux := http.NewServeMux()
-	adminMux.HandleFunc(queue.RequestQueueDrainPath, func(w http.ResponseWriter, r *http.Request) {
+	adminMux.HandleFunc(queue.RequestQueueDrainPath, func(w http.ResponseWriter, _ *http.Request) {
 		logger.Info("Attached drain handler from user-container")
-		drain()
+		go func() {
+			select {
+			case <-ctx.Done():
+			case <-time.After(time.Second):
+				// If the context isn't done then the queue proxy didn't
+				// receive a TERM signal. Thus the user-container's
+				// liveness probes are triggering the container to restart
+				// and we shouldn't block that
+				drainer.Reset()
+			}
+		}()
+
+		drainer.Drain()
+		w.WriteHeader(http.StatusOK)
 	})
 
 	return &http.Server{
