@@ -14,10 +14,9 @@ workflow:
     # Don't run CI when tags are pushed
     - if: $CI_COMMIT_TAG
       when: never
-    # Do run CI when the source is a <push|web|pipeline> event
-    # This prevents the pipeline from running spuriously
-    # https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html#pipeline-events
-    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "pipeline"'
+    - if: $CI_PIPELINE_SOURCE == "external_pull_request_event"
+      when: never
+    - when: always
 
 
 variables:
