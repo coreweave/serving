@@ -74,6 +74,7 @@ compile:
     - export KO_DATA_DATE_EPOCH=$(git log -1 --format='%ct')
     - ko resolve --base-import-paths -f config/core/deployments -t "$CI_COMMIT_REF_SLUG,$CI_COMMIT_SHORT_SHA" >> ./release.yaml
     - cat ./release.yaml
+    - ko build --base-import-paths ./cmd/queue -t "$CI_COMMIT_REF_SLUG,$CI_COMMIT_SHORT_SHA"
   
   artifacts:
     paths:

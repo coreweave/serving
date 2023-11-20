@@ -223,7 +223,7 @@ func buildProbe(logger *zap.SugaredLogger, encodedProbe string, autodetectHTTP2 
 }
 
 func buildServer(ctx context.Context, env config, probeContainer func() bool, stats *network.RequestStats, logger *zap.SugaredLogger,
-	ce *queue.ConcurrencyEndpoint) (server *http.Server, drainer *Drainer) {
+	ce *queue.ConcurrencyEndpoint) (server *http.Server, drainer *queue.Drainer) {
 	maxIdleConns := 1000 // TODO: somewhat arbitrary value for CC=0, needs experimental validation.
 	if env.ContainerConcurrency > 0 {
 		maxIdleConns = env.ContainerConcurrency
@@ -273,7 +273,7 @@ func buildServer(ctx context.Context, env config, probeContainer func() bool, st
 		composedHandler = tracing.HTTPSpanMiddleware(composedHandler)
 	}
 
-	drainer = &Drainer{
+	drainer = &queue.Drainer{
 		QuietPeriod: drainSleepDuration,
 		// Add Activator probe header to the drainer so it can handle probes directly from activator
 		HealthCheckUAPrefixes: []string{network.ActivatorUserAgent},
@@ -344,7 +344,7 @@ func supportsMetrics(ctx context.Context, logger *zap.SugaredLogger, env config)
 	return true
 }
 
-func buildAdminServer(ctx context.Context, logger *zap.SugaredLogger, drainer *Drainer) *http.Server {
+func buildAdminServer(ctx context.Context, logger *zap.SugaredLogger, drainer *queue.Drainer) *http.Server {
 	adminMux := http.NewServeMux()
 	adminMux.HandleFunc(queue.RequestQueueDrainPath, func(w http.ResponseWriter, _ *http.Request) {
 		logger.Info("Attached drain handler from user-container")
