@@ -87,8 +87,8 @@ func (d dests) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 }
 
 const (
-	probeTimeout          time.Duration = 300 * time.Millisecond
-	defaultProbeFrequency time.Duration = 200 * time.Millisecond
+	probeTimeout          time.Duration = 1000 * time.Millisecond // Increase to see if it helps with roundtrip probe failures, which it does, not decreasing for now until we have better idea how many long probes we have
+	defaultProbeFrequency time.Duration = 500 * time.Millisecond  // Now at 500 instead of original 200, reductions increase probe failures (somewhat expected), but seem to reduce later dial error
 )
 
 // revisionWatcher watches the podIPs and ClusterIP of the service for a revision. It implements the logic
@@ -196,7 +196,16 @@ func (rw *revisionWatcher) probe(ctx context.Context, dest string) (pass bool, n
 			netprober.WithHeader(netheader.PassthroughLoadbalancingKey, "true"))
 	}
 
+	now := time.Now()
 	match, err := netprober.Do(ctx, rw.transport, httpDest.String(), options...)
+	if duration := time.Since(now); err == nil && duration > defaultProbeFrequency {
+		rw.logger.Warnw(
+			"successful probe took longer than probe interval",
+			zap.Int64("duration", duration.Milliseconds()),
+		)
+	} else if err == nil {
+		rw.logger.Infow("successful probe", zap.Int64("duration", duration.Milliseconds()))
+	}
 	return match, notMesh, err
 }
 
@@ -249,10 +258,9 @@ func (rw *revisionWatcher) probePodIPs(ready, notReady sets.String) (succeeded s
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 
-	probeGroup, egCtx := errgroup.WithContext(ctx)
+	var probeGroup errgroup.Group
 	healthyDests := make(chan string, dests.Len())
 
-	var probed bool
 	var sawNotMesh atomic.Bool
 	for dest := range dests {
 		if healthy.Has(dest) {
@@ -260,11 +268,9 @@ func (rw *revisionWatcher) probePodIPs(ready, notReady sets.String) (succeeded s
 			continue
 		}
 
-		probed = true
-
 		dest := dest // Standard Go concurrency pattern.
 		probeGroup.Go(func() error {
-			ok, notMesh, err := rw.probe(egCtx, dest)
+			ok, notMesh, err := rw.probe(ctx, dest)
 			if ok && (ready.Has(dest) || rw.enableProbeOptimisation) {
 				healthyDests <- dest
 			}
@@ -280,8 +286,6 @@ func (rw *revisionWatcher) probePodIPs(ready, notReady sets.String) (succeeded s
 	err = probeGroup.Wait()
 	close(healthyDests)
 
-	unchanged := probed && len(healthyDests) == 0
-
 	for d := range healthyDests {
 		healthy.Insert(d)
 	}
@@ -292,6 +296,8 @@ func (rw *revisionWatcher) probePodIPs(ready, notReady sets.String) (succeeded s
 			healthy.Delete(d)
 		}
 	}
+
+	unchanged := healthy.Equal(rw.healthyPods)
 
 	return healthy, unchanged, sawNotMesh.Load(), err
 }
@@ -564,6 +570,7 @@ func (rbm *revisionBackendsManager) endpointsUpdated(newObj interface{}) {
 		rbm.logger.Errorw("Failed to get revision watcher", zap.Error(err), zap.String(logkey.Key, revID.String()))
 		return
 	}
+	rbm.logger.Infow("Endpoints updated", zap.String(logkey.Key, revID.String()))
 	ready, notReady := endpointsToDests(endpoints, pkgnet.ServicePortName(rw.protocol))
 	select {
 	case <-rbm.ctx.Done():
@@ -591,7 +598,7 @@ func (rbm *revisionBackendsManager) endpointsDeleted(obj interface{}) {
 	ep := obj.(*corev1.Endpoints)
 	revID := types.NamespacedName{Namespace: ep.Namespace, Name: ep.Labels[serving.RevisionLabelKey]}
 
-	rbm.logger.Debugw("Deleting endpoint", zap.String(logkey.Key, revID.String()))
+	rbm.logger.Infow("Deleting endpoint", zap.String(logkey.Key, revID.String()))
 	rbm.revisionWatchersMux.Lock()
 	defer rbm.revisionWatchersMux.Unlock()
 	rbm.deleteRevisionWatcher(revID)

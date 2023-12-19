@@ -137,7 +137,13 @@ func (a *activationHandler) proxyRequest(revID types.NamespacedName, w http.Resp
 	}
 	proxy.FlushInterval = netproxy.FlushInterval
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
-		pkghandler.Error(a.logger.With(zap.String(logkey.Key, revID.String())))(w, req, err)
+		pkghandler.Error(
+			a.logger.With(zap.String(logkey.Key, revID.String()), zap.String("target", target)),
+		)(
+			w,
+			req,
+			err,
+		)
 	}
 
 	proxy.ServeHTTP(w, r)

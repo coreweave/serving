@@ -61,6 +61,10 @@ func (h *contextHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// If the headers aren't explicitly specified, then decode the revision
 	// name and namespace from the Host header.
 	if name == "" || namespace == "" {
+		h.logger.Warnw(
+			"Revision name and namespace not specified in request headers, attempting to decode from host",
+			zap.String("host", r.Host),
+		)
 		parts := strings.SplitN(r.Host, ".", 4)
 		if len(parts) == 4 && parts[2] == "svc" && strings.SplitN(parts[3], ":", 2)[0] == network.GetClusterDomainName() {
 			name, namespace = parts[0], parts[1]
@@ -71,7 +75,13 @@ func (h *contextHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	revision, err := h.revisionLister.Revisions(namespace).Get(name)
 	if err != nil {
-		h.logger.Errorw("Error while getting revision", zap.String(logkey.Key, revID.String()), zap.Error(err))
+		h.logger.Errorw(
+			"Error while getting revision",
+			zap.String(logkey.Key, revID.String()),
+			zap.String("headers", fmt.Sprintf("%+v", r.Header)),
+			zap.String("host", r.Host),
+			zap.Error(err),
+		)
 		sendError(err, w)
 		return
 	}

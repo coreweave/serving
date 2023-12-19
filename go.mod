@@ -4,7 +4,7 @@ module knative.dev/serving
 // newer version of Go
 // Fixes: https://groups.google.com/g/golang-announce/c/iNNxDTCjZvo
 
-go 1.18
+go 1.20
 
 require (
 	github.com/ahmetb/gen-crd-api-reference-docs v0.3.1-0.20210609063737-0067dc6dcea2
