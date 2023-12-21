@@ -452,7 +452,7 @@ func (rw *revisionWatcher) run(probeFrequency time.Duration) {
 		case <-rw.stopCh:
 			return
 		case x := <-rw.destsCh:
-			rw.logger.Debugf(
+			rw.logger.Infof(
 				"Updating Endpoints: ready backends: %d, not-ready backends: %d",
 				len(x.ready),
 				len(x.notReady),
@@ -626,8 +626,9 @@ func (rbm *revisionBackendsManager) endpointsUpdated(newObj interface{}) {
 		)
 		return
 	}
-	rbm.logger.Infow("Endpoints updated", zap.String(logkey.Key, revID.String()))
 	ready, notReady := endpointsToDests(endpoints, pkgnet.ServicePortName(rw.protocol))
+	rbm.logger.Infow("Endpoints updated", zap.String(logkey.Key, revID.String()),
+		zap.Int("ready", len(ready)), zap.Int("notReady", len(notReady)))
 	select {
 	case <-rbm.ctx.Done():
 		return
